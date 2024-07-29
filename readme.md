@@ -1,6 +1,20 @@
-# Keychron K1 Pro Lite
+# Keychron K1 Pro (No battery/bt mod)
 
 ![Keychron K1 Pro](https://github.com/Keychron/ProductImage/blob/main/K_Pro/k1_pro.jpg?raw=true)
+
+Sources for hardware modified K1 Pro
+
+Hardware mods:
+* Battery removed, including charging IC
+* Bluetooth board removed
+
+Behaviour mods:
+* Win/Mac switch now toggles RGB
+* RGB led brightness increased
+* Mac support removed
+* Only supports the ANSI variant
+* Uses mostly standard TKL layout (eg: Keychron shortcuts like speech/backlight won't work)
+* Startup delay removed
 
 A customizable 80% TKL keyboard.
 
