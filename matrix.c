@@ -14,141 +14,153 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "quantum.h"
+#include "matrix.h"
+#include "atomic_util.h"
+#include <string.h>
 
-#define HC595_STCP B0
-#define HC595_SHCP A1
-#define HC595_DS A7
+// Pin connected to DS of 74HC595
+#define DATA_PIN A7
+// Pin connected to SH_CP of 74HC595
+#define CLOCK_PIN A1
+// Pin connected to ST_CP of 74HC595
+#define LATCH_PIN B0
 
+#ifdef MATRIX_ROW_PINS
+static pin_t row_pins[MATRIX_ROWS] = MATRIX_ROW_PINS;
+#endif // MATRIX_ROW_PINS
+#ifdef MATRIX_COL_PINS
+static pin_t col_pins[MATRIX_COLS] = MATRIX_COL_PINS;
+#endif // MATRIX_COL_PINS
+
+#define ROWS_PER_HAND (MATRIX_ROWS)
 #define DIRECT_COL_NUM 1
 
-pin_t row_pins[MATRIX_ROWS] = MATRIX_ROW_PINS;
-pin_t col_pins[MATRIX_COLS] = MATRIX_COL_PINS;
+static inline void gpio_atomic_set_pin_output_low(pin_t pin) {
+    ATOMIC_BLOCK_FORCEON {
+        gpio_set_pin_output(pin);
+        gpio_write_pin_low(pin);
+    }
+}
+
+static inline void gpio_atomic_set_pin_output_high(pin_t pin) {
+    ATOMIC_BLOCK_FORCEON {
+        gpio_set_pin_output(pin);
+        gpio_write_pin_high(pin);
+    }
+}
+
+static inline void gpio_atomic_set_pin_input_high(pin_t pin) {
+    ATOMIC_BLOCK_FORCEON {
+        gpio_set_pin_input_high(pin);
+    }
+}
 
 static inline uint8_t readMatrixPin(pin_t pin) {
     if (pin != NO_PIN) {
-        return readPin(pin);
+        return gpio_read_pin(pin);
     } else {
         return 1;
     }
 }
 
-static inline void setPinOutput_writeLow(pin_t pin) {
-    setPinOutput(pin);
-    writePinLow(pin);
-}
-
-static inline void setPinOutput_writeHigh(pin_t pin) {
-    setPinOutput(pin);
-    writePinHigh(pin);
-}
-
-static inline void HC595_delay(uint16_t n) {
-    while (n-- > 0) {
-        asm volatile("nop" ::: "memory");
-    }
-}
-
-static void HC595_output(uint16_t data) {
-    uint8_t n = 1;
-    uint8_t i;
-
-    for (i = 0; i < (MATRIX_COLS - DIRECT_COL_NUM); i++) {
-        writePinLow(HC595_SHCP);
-        if (data & 0x1) {
-            writePinHigh(HC595_DS);
+static void shiftOut(uint8_t dataOut) {
+    for (uint8_t i = 0; i < 8; i++) {
+        if (dataOut & 0x1) {
+            gpio_atomic_set_pin_output_high(DATA_PIN);
         } else {
-            writePinLow(HC595_DS);
+            gpio_atomic_set_pin_output_low(DATA_PIN);
         }
-        HC595_delay(n);
-        writePinHigh(HC595_SHCP);
-        HC595_delay(n);
-
-        data = data >> 1;
+        dataOut = dataOut >> 1;
+        gpio_atomic_set_pin_output_high(CLOCK_PIN);
+        gpio_atomic_set_pin_output_low(CLOCK_PIN);
     }
-    writePinLow(HC595_STCP);
-    HC595_delay(n);
-    writePinHigh(HC595_STCP);
+    gpio_atomic_set_pin_output_high(LATCH_PIN);
+    gpio_atomic_set_pin_output_low(LATCH_PIN);
 }
 
-static void HC595_output_bit(uint16_t data) {
-    uint8_t n = 1;
-
-    writePinLow(HC595_SHCP);
+static void shiftout_single(uint8_t data) {
     if (data & 0x1) {
-        writePinHigh(HC595_DS);
+        gpio_atomic_set_pin_output_high(DATA_PIN);
     } else {
-        writePinLow(HC595_DS);
+        gpio_atomic_set_pin_output_low(DATA_PIN);
     }
-    HC595_delay(n);
 
-    writePinHigh(HC595_SHCP);
-    HC595_delay(n);
+    gpio_atomic_set_pin_output_high(CLOCK_PIN);
+    gpio_atomic_set_pin_output_low(CLOCK_PIN);
 
-    writePinLow(HC595_STCP);
-    HC595_delay(n);
-    writePinHigh(HC595_STCP);
+    gpio_atomic_set_pin_output_high(LATCH_PIN);
+    gpio_atomic_set_pin_output_low(LATCH_PIN);
 }
 
-static void select_col(uint8_t col) {
-    if (col < DIRECT_COL_NUM) {
-        setPinOutput_writeLow(col_pins[col]);
+static bool select_col(uint8_t col) {
+    pin_t pin = col_pins[col];
+
+    if (pin != NO_PIN) {
+        gpio_atomic_set_pin_output_low(pin);
+        return true;
     } else {
-        if (col == DIRECT_COL_NUM) {
-            HC595_output_bit(0x00);
+        if (col == 1) {
+            shiftout_single(0x00);
         }
+        return true;
     }
+    return false;
 }
 
 static void unselect_col(uint8_t col) {
     if (col < DIRECT_COL_NUM) {
 #ifdef MATRIX_UNSELECT_DRIVE_HIGH
-        setPinOutput_writeHigh(col_pins[col]);
+        gpio_atomic_set_pin_output_high(col_pins[col]);
 #else
-        setPinInputHigh(col_pins[col]);
+        gpio_atomic_set_pin_input_high(col_pins[col]);
 #endif
     } else {
-        HC595_output_bit(0x01);
+        shiftout_single(0x01);
     }
 }
 
 static void unselect_cols(void) {
+    // unselect column pins
     for (uint8_t x = 0; x < MATRIX_COLS; x++) {
         if (x < DIRECT_COL_NUM) {
 #ifdef MATRIX_UNSELECT_DRIVE_HIGH
-            setPinOutput_writeHigh(col_pins[x]);
+            gpio_atomic_set_pin_output_high(col_pins[x]);
 #else
-            setPinInputHigh(col_pins[x]);
+            gpio_atomic_set_pin_input_high(col_pins[x]);
 #endif
-        } else {
-            if (x == DIRECT_COL_NUM) HC595_output(0xFFFF);
-            break;
+        }
+        if (x == DIRECT_COL_NUM) {
+            // unselect Shift Register
+            shiftOut(0xFF);
         }
     }
 }
 
-void select_all_cols(void) {
-    for (uint8_t x = 0; x < MATRIX_COLS; x++) {
-        if (x < DIRECT_COL_NUM) {
-            setPinOutput_writeLow(col_pins[x]);
-        } else {
-            if (x == DIRECT_COL_NUM) HC595_output(0x0000);
-            break;
+static void matrix_init_pins(void) {
+    unselect_cols();
+    for (uint8_t x = 0; x < MATRIX_ROWS; x++) {
+        if (row_pins[x] != NO_PIN) {
+            gpio_atomic_set_pin_input_high(row_pins[x]);
         }
     }
 }
 
 static void matrix_read_rows_on_col(matrix_row_t current_matrix[], uint8_t current_col, matrix_row_t row_shifter) {
+    bool key_pressed = false;
+
     // Select col
-    select_col(current_col);
-    HC595_delay(200);
+    if (!select_col(current_col)) { // select col
+        return;                     // skip NO_PIN col
+    }
+    matrix_output_select_delay();
 
     // For each row...
-    for (uint8_t row_index = 0; row_index < MATRIX_ROWS; row_index++) {
+    for (uint8_t row_index = 0; row_index < ROWS_PER_HAND; row_index++) {
         // Check row pin state
         if (readMatrixPin(row_pins[row_index]) == 0) {
             // Pin LO, set col bit
             current_matrix[row_index] |= row_shifter;
+            key_pressed = true;
         } else {
             // Pin HI, clear col bit
             current_matrix[row_index] &= ~row_shifter;
@@ -157,21 +169,12 @@ static void matrix_read_rows_on_col(matrix_row_t current_matrix[], uint8_t curre
 
     // Unselect col
     unselect_col(current_col);
-    HC595_delay(200); // wait for all Row signals to go HIGH
+    matrix_output_unselect_delay(current_col, key_pressed); // wait for all Row signals to go HIGH
 }
 
 void matrix_init_custom(void) {
-    setPinOutput(HC595_DS);
-    setPinOutput(HC595_STCP);
-    setPinOutput(HC595_SHCP);
-
-    for (uint8_t x = 0; x < MATRIX_ROWS; x++) {
-        if (row_pins[x] != NO_PIN) {
-            setPinInputHigh(row_pins[x]);
-        }
-    }
-
-    unselect_cols();
+    // initialize key pins
+    matrix_init_pins();
 }
 
 bool matrix_scan_custom(matrix_row_t current_matrix[]) {

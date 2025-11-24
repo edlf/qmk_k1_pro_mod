@@ -27,4 +27,4 @@
 #endif // LOW_POWER_LEDS
 
 /* Enable CapsLcok LED */
-#define CAPS_LOCK_LED_INDEX 50
+//#define CAPS_LOCK_LED_INDEX 50

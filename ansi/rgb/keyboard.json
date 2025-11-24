@@ -101,9 +101,7 @@
     },
     "matrix_pins": {
         "rows": ["B5", "B4", "B3", "A15", "A14", "A13"],
-        "cols": ["C15", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
-        "custom": true,
-        "custom_lite": true
+        "cols": ["C15", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]
     },
     "layouts": {
         "LAYOUT_tkl_ansi": {
